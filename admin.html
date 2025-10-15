@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin - ระบบเช็คชื่อ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800">
+<div class="container mx-auto p-4 max-w-6xl">
+
+  <header class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-blue-600">หน้าแอดมิน - ระบบเช็คชื่อ</h1>
+    <a href="หน้าเว็บ.html" class="text-sm px-3 py-2 bg-blue-600 text-white rounded">กลับหน้าใช้งาน</a>
+  </header>
+
+  <div id="login" class="bg-white p-6 rounded shadow max-w-md mx-auto">
+    <h2 class="text-lg font-semibold mb-3">เข้าสู่ระบบผู้ดูแล</h2>
+    <input id="admin-pass" type="password" placeholder="รหัสผ่านผู้ดูแล" class="w-full border rounded p-2 mb-3"/>
+    <button id="admin-login" class="px-4 py-2 bg-blue-600 text-white rounded w-full">เข้าสู่ระบบ</button>
+    <p class="text-sm text-gray-500 mt-2">(รหัสทดลอง: <span class="font-semibold">admin1234</span>)</p>
+  </div>
+
+  <div id="admin-area" class="hidden space-y-4">
+    <div class="bg-white p-4 rounded shadow flex items-center justify-between">
+      <div>
+        <label>เลือกวันที่: <input type="date" id="filter-date" class="border rounded p-1" /></label>
+      </div>
+      <div>
+        <button id="reload-btn" class="px-3 py-1 bg-green-600 text-white rounded">โหลดข้อมูล</button>
+        <button id="export-btn" class="px-3 py-1 bg-blue-600 text-white rounded">Export CSV</button>
+      </div>
+    </div>
+
+    <div class="bg-white p-4 rounded shadow overflow-x-auto">
+      <table class="w-full text-left border-collapse" id="attendance-table">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="p-2">รหัส</th>
+            <th class="p-2">ชื่อ</th>
+            <th class="p-2">ห้อง</th>
+            <th class="p-2">เวลา</th>
+            <th class="p-2">พิกัด</th>
+            <th class="p-2">สถานะ</th>
+            <th class="p-2">รูป</th>
+          </tr>
+        </thead>
+        <tbody id="attendance-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const ADMIN_PASSWORD = 'admin1234';
+const GAS_URL = localStorage.getItem('gasWebAppUrl') || '';
+
+document.getElementById('admin-login').onclick = async () => {
+  const p = document.getElementById('admin-pass').value;
+  if (p !== ADMIN_PASSWORD) { alert('รหัสผ่านไม่ถูกต้อง'); return; }
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('admin-area').classList.remove('hidden');
+  document.getElementById('filter-date').valueAsDate = new Date();
+  await loadAndRender();
+};
+
+async function apiCall(payload) {
+  if (!GAS_URL) { alert('กรุณาตั้งค่า GAS URL ใน localStorage (key: gasWebAppUrl)'); throw new Error('GAS URL missing'); }
+  const res = await fetch(GAS_URL, { method:'POST', body: JSON.stringify(payload) });
+  return await res.json();
+}
+
+async function loadAndRender() {
+  const r1 = await apiCall({ action:'getStudents' });
+  const r2 = await apiCall({ action:'getAttendance' });
+  const students = r1.success ? r1.data : [];
+  const attendance = r2.success ? r2.data : [];
+  renderAttendance(attendance, students);
+}
+
+function renderAttendance(attendance, students) {
+  const tbody = document.getElementById('attendance-body');
+  tbody.innerHTML = '';
+  const selDate = new Date(document.getElementById('filter-date').value);
+  selDate.setHours(0,0,0,0);
+  attendance.forEach(rec => {
+    const recDate = new Date(rec.timestamp);
+    recDate.setHours(0,0,0,0);
+    if (recDate.getTime() !== selDate.getTime()) return;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="p-2">${rec.id}</td>
+      <td class="p-2">${rec.name}</td>
+      <td class="p-2">${rec.class || ''}</td>
+      <td class="p-2">${new Date(rec.timestamp).toLocaleString()}</td>
+      <td class="p-2">${rec.location || ''}</td>
+      <td class="p-2">${rec.status || ''}</td>
+      <td class="p-2">${renderStudentImage(rec.id, students)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderStudentImage(studentId, students) {
+  const s = students.find(x => x.studentid === studentId);
+  if (s && s.imagedatabase64) return `<img src="${s.imagedatabase64}" class="w-12 h-12 rounded-full object-cover">`;
+  return '-';
+}
+
+document.getElementById('reload-btn').onclick = loadAndRender;
+document.getElementById('export-btn').onclick = async () => {
+  const r = await apiCall({ action:'getAttendance' });
+  if (!r.success) { alert('โหลดไม่สำเร็จ'); return; }
+  const arr = r.data || [];
+  const selDate = new Date(document.getElementById('filter-date').value);
+  selDate.setHours(0,0,0,0);
+  const rows = [['StudentID','Name','Class','Timestamp','Location','Status']];
+  arr.forEach(rec => {
+    const d = new Date(rec.timestamp); d.setHours(0,0,0,0);
+    if (d.getTime() !== selDate.getTime()) return;
+    rows.push([rec.id, rec.name, rec.class, rec.timestamp, rec.location, rec.status]);
+  });
+  const csv = rows.map(r => r.map(c => `"${(c||'').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `attendance_${document.getElementById('filter-date').value}.csv`; a.click();
+};
+</script>
+</body>
+</html>
